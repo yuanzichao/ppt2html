@@ -178,23 +178,42 @@ func parseRelationships(files map[string]*zip.File, relPath string) (map[string]
 	}
 	defer r.Close()
 
-	data := struct {
-		Relationships []struct {
-			ID     string `xml:"Id,attr"`
-			Target string `xml:"Target,attr"`
-		} `xml:"{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"`
-	}{}
-
 	decoder := xml.NewDecoder(r)
 	decoder.Strict = false
-	if err := decoder.Decode(&data); err != nil && err != io.EOF {
-		return nil, err
-	}
 
 	rels := make(map[string]string)
-	for _, rel := range data.Relationships {
-		rels[rel.ID] = rel.Target
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if start.Name.Local != "Relationship" {
+			continue
+		}
+
+		var id, target string
+		for _, attr := range start.Attr {
+			switch attr.Name.Local {
+			case "Id":
+				id = strings.TrimSpace(attr.Value)
+			case "Target":
+				target = strings.TrimSpace(attr.Value)
+			}
+		}
+		if id == "" || target == "" {
+			continue
+		}
+		rels[id] = target
 	}
+
 	return rels, nil
 }
 

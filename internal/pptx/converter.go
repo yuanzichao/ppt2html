@@ -261,6 +261,45 @@ type textRun struct {
 	Color     string
 }
 
+type rawSlideXML struct {
+	XMLName xml.Name `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sld"`
+	CSld    struct {
+		Background *struct {
+			BgPr *struct {
+				SolidFill *struct {
+					Srgb *struct {
+						Val string `xml:"val,attr"`
+					} `xml:"{http://schemas.openxmlformats.org/drawingml/2006/main}srgbClr"`
+				} `xml:"{http://schemas.openxmlformats.org/drawingml/2006/main}solidFill"`
+			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}bgPr"`
+		} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}bg"`
+		SpTree struct {
+			Shapes []struct {
+				NVSpPr struct {
+					CNvPr struct {
+						Name string `xml:"name,attr"`
+					} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}cNvPr"`
+				} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}nvSpPr"`
+				SpPr   *shapeProps `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}spPr"`
+				TxBody *textBody   `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}txBody"`
+			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sp"`
+			Pictures []struct {
+				NVPicPr struct {
+					CNvPr struct {
+						Name string `xml:"name,attr"`
+					} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}cNvPr"`
+				} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}nvPicPr"`
+				BlipFill *struct {
+					Blip struct {
+						Embed string `xml:"{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed,attr"`
+					} `xml:"{http://schemas.openxmlformats.org/drawingml/2006/main}blip"`
+				} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}blipFill"`
+				SpPr *shapeProps `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}spPr"`
+			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}pic"`
+		} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}spTree"`
+	} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}cSld"`
+}
+
 func parseSlide(f *zip.File) (*slide, error) {
 	r, err := f.Open()
 	if err != nil {
@@ -268,61 +307,40 @@ func parseSlide(f *zip.File) (*slide, error) {
 	}
 	defer r.Close()
 
-	decoder := xml.NewDecoder(r)
-	decoder.Strict = false
-	decoder.DefaultSpace = presentationNS
-
-	type rawSlide struct {
-		XMLName xml.Name `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sld"`
-		CSld    struct {
-			Background *struct {
-				BgPr *struct {
-					SolidFill *struct {
-						Srgb *struct {
-							Val string `xml:"val,attr"`
-						} `xml:"{http://schemas.openxmlformats.org/drawingml/2006/main}srgbClr"`
-					} `xml:"{http://schemas.openxmlformats.org/drawingml/2006/main}solidFill"`
-				} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}bgPr"`
-			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}bg"`
-			SpTree struct {
-				Shapes []struct {
-					NVSpPr struct {
-						CNvPr struct {
-							Name string `xml:"name,attr"`
-						} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}cNvPr"`
-					} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}nvSpPr"`
-					SpPr   *shapeProps `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}spPr"`
-					TxBody *textBody   `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}txBody"`
-				} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sp"`
-				Pictures []struct {
-					NVPicPr struct {
-						CNvPr struct {
-							Name string `xml:"name,attr"`
-						} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}cNvPr"`
-					} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}nvPicPr"`
-					BlipFill *struct {
-						Blip struct {
-							Embed string `xml:"{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed,attr"`
-						} `xml:"{http://schemas.openxmlformats.org/drawingml/2006/main}blip"`
-					} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}blipFill"`
-					SpPr *shapeProps `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}spPr"`
-				} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}pic"`
-			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}spTree"`
-		} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}cSld"`
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
 	}
 
-	var data rawSlide
-	if err := decoder.Decode(&data); err != nil {
+	decode := func(payload []byte) (*rawSlideXML, error) {
+		decoder := xml.NewDecoder(bytes.NewReader(payload))
+		decoder.Strict = false
+		decoder.DefaultSpace = presentationNS
+
+		var data rawSlideXML
+		if err := decoder.Decode(&data); err != nil {
+			return nil, err
+		}
+		return &data, nil
+	}
+
+	raw, err := decode(data)
+	if err != nil {
+		if patched := ensureDefaultNamespace(data, []byte("<sld"), presentationNS); patched != nil {
+			raw, err = decode(patched)
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
 
 	result := &slide{}
 
-	if data.CSld.Background != nil && data.CSld.Background.BgPr != nil && data.CSld.Background.BgPr.SolidFill != nil && data.CSld.Background.BgPr.SolidFill.Srgb != nil {
-		result.Background = &background{Color: formatColor(data.CSld.Background.BgPr.SolidFill.Srgb.Val)}
+	if raw.CSld.Background != nil && raw.CSld.Background.BgPr != nil && raw.CSld.Background.BgPr.SolidFill != nil && raw.CSld.Background.BgPr.SolidFill.Srgb != nil {
+		result.Background = &background{Color: formatColor(raw.CSld.Background.BgPr.SolidFill.Srgb.Val)}
 	}
 
-	for _, rawShape := range data.CSld.SpTree.Shapes {
+	for _, rawShape := range raw.CSld.SpTree.Shapes {
 		sh := shape{Name: rawShape.NVSpPr.CNvPr.Name}
 		if rawShape.SpPr != nil {
 			sh.Transform = rawShape.SpPr.Transform()
@@ -338,7 +356,7 @@ func parseSlide(f *zip.File) (*slide, error) {
 		result.Shapes = append(result.Shapes, sh)
 	}
 
-	for _, rawPic := range data.CSld.SpTree.Pictures {
+	for _, rawPic := range raw.CSld.SpTree.Pictures {
 		pic := picture{Name: rawPic.NVPicPr.CNvPr.Name}
 		if rawPic.SpPr != nil {
 			pic.Transform = rawPic.SpPr.Transform()
@@ -350,6 +368,30 @@ func parseSlide(f *zip.File) (*slide, error) {
 	}
 
 	return result, nil
+}
+
+func ensureDefaultNamespace(data []byte, tag []byte, namespace string) []byte {
+	idx := bytes.Index(data, tag)
+	if idx == -1 {
+		return nil
+	}
+	end := bytes.IndexByte(data[idx:], '>')
+	if end == -1 {
+		return nil
+	}
+	endIdx := idx + end
+	if bytes.Contains(data[idx:endIdx], []byte("xmlns=")) {
+		return nil
+	}
+
+	var buf bytes.Buffer
+	buf.Grow(len(data) + len(namespace) + 16)
+	buf.Write(data[:endIdx])
+	buf.WriteString(` xmlns="`)
+	buf.WriteString(namespace)
+	buf.WriteByte('"')
+	buf.Write(data[endIdx:])
+	return buf.Bytes()
 }
 
 type shapeProps struct {

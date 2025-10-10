@@ -114,37 +114,40 @@ func parsePresentation(f *zip.File) (*presentationData, error) {
 
 	decoder := xml.NewDecoder(r)
 	decoder.Strict = false
-	data := struct {
+
+	type presentation struct {
 		SlideSize struct {
-			CX string `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldSz>cx,attr"`
-			CY string `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldSz>cy,attr"`
-		}
+			CX int64 `xml:"cx,attr"`
+			CY int64 `xml:"cy,attr"`
+		} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldSz"`
 		SlideIDList struct {
 			SlideIDs []struct {
 				RID string `xml:"{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id,attr"`
-			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldIdLst>sldId"`
-		}
-	}{}
+			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"`
+		} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldIdLst"`
+	}
 
+	var data presentation
 	if err := decoder.Decode(&data); err != nil {
 		return nil, err
 	}
 
-	size := slideSize{}
-	if data.SlideSize.CX != "" {
-		size.CX = emuToPixels(mustParseInt(data.SlideSize.CX))
-	} else {
-		size.CX = 960
+	size := slideSize{
+		CX: 960,
+		CY: 540,
 	}
-	if data.SlideSize.CY != "" {
-		size.CY = emuToPixels(mustParseInt(data.SlideSize.CY))
-	} else {
-		size.CY = 540
+	if data.SlideSize.CX != 0 {
+		size.CX = emuToPixels(data.SlideSize.CX)
+	}
+	if data.SlideSize.CY != 0 {
+		size.CY = emuToPixels(data.SlideSize.CY)
 	}
 
-	var slideRels []string
+	slideRels := make([]string, 0, len(data.SlideIDList.SlideIDs))
 	for _, id := range data.SlideIDList.SlideIDs {
-		slideRels = append(slideRels, id.RID)
+		if id.RID != "" {
+			slideRels = append(slideRels, id.RID)
+		}
 	}
 
 	return &presentationData{SlideSize: size, SlideRels: slideRels}, nil

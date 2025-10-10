@@ -114,6 +114,7 @@ func parsePresentation(f *zip.File) (*presentationData, error) {
 
 	decoder := xml.NewDecoder(r)
 	decoder.Strict = false
+	decoder.DefaultSpace = presentationNS
 
 	size := slideSize{
 		CX: 960,
@@ -269,6 +270,7 @@ func parseSlide(f *zip.File) (*slide, error) {
 
 	decoder := xml.NewDecoder(r)
 	decoder.Strict = false
+	decoder.DefaultSpace = presentationNS
 
 	type rawSlide struct {
 		XMLName xml.Name `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sld"`

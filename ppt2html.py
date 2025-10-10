@@ -388,11 +388,7 @@ def slide_to_html(slide, assets_dir: Path, slide_idx: int) -> str:
     )
 
 
-def generate_html(presentation: Presentation, assets_dir: Path) -> str:
-    slides_html: List[str] = []
-    for slide_idx, slide in enumerate(presentation.slides):
-        slides_html.append(slide_to_html(slide, assets_dir, slide_idx))
-
+def presentation_metadata_tag(presentation: Presentation) -> str:
     core_props = {}
     props = presentation.core_properties
     for attr in [
@@ -432,11 +428,13 @@ def generate_html(presentation: Presentation, assets_dir: Path) -> str:
     metadata_json = html.escape(
         json.dumps(presentation_metadata, ensure_ascii=False, separators=(",", ":"))
     )
-    presentation_metadata_tag = (
+    return (
         f"<script type=\"application/json\" id=\"presentation-metadata\">{metadata_json}</script>"
     )
 
-    css = """
+
+def base_css() -> str:
+    return """
     body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; background: #111; }
     .deck { display: flex; flex-direction: column; gap: 48px; padding: 32px; }
     .slide { position: relative; width: 960px; height: 540px; margin: 0 auto; background: white; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25); }
@@ -447,6 +445,9 @@ def generate_html(presentation: Presentation, assets_dir: Path) -> str:
     table.chart-data th, table.chart-data td { border: 1px solid #cccccc; padding: 4px 8px; }
     """
 
+
+def build_slide_document(slide_markup: str, metadata_tag: str) -> str:
+    css = base_css()
     return (
         "<!DOCTYPE html>"
         "<html lang=\"en\">"
@@ -457,16 +458,25 @@ def generate_html(presentation: Presentation, assets_dir: Path) -> str:
         f"<style>{css}</style>"
         "</head>"
         "<body>"
-        f"{presentation_metadata_tag}"
+        f"{metadata_tag}"
         "<main class=\"deck\">"
-        f"{''.join(slides_html)}"
+        f"{slide_markup}"
         "</main>"
         "</body>"
         "</html>"
     )
 
 
-def convert_pptx_to_html(input_path: Path, output_html: Path) -> None:
+def generate_slide_documents(presentation: Presentation, assets_dir: Path) -> List[str]:
+    metadata_tag = presentation_metadata_tag(presentation)
+    slide_documents: List[str] = []
+    for slide_idx, slide in enumerate(presentation.slides):
+        slide_markup = slide_to_html(slide, assets_dir, slide_idx)
+        slide_documents.append(build_slide_document(slide_markup, metadata_tag))
+    return slide_documents
+
+
+def convert_pptx_to_html(input_path: Path, output_html: Path) -> Tuple[List[Path], Path]:
     presentation = Presentation(str(input_path))
 
     assets_dir = output_html.with_name(output_html.stem + "_assets")
@@ -474,8 +484,16 @@ def convert_pptx_to_html(input_path: Path, output_html: Path) -> None:
         shutil.rmtree(assets_dir)
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    html_content = generate_html(presentation, assets_dir)
-    output_html.write_text(html_content, encoding="utf-8")
+    slide_documents = generate_slide_documents(presentation, assets_dir)
+
+    output_paths: List[Path] = []
+    for idx, slide_html in enumerate(slide_documents, start=1):
+        filename = f"{output_html.stem}_slide{idx:03d}.html"
+        slide_path = output_html.with_name(filename)
+        slide_path.write_text(slide_html, encoding="utf-8")
+        output_paths.append(slide_path)
+
+    return output_paths, assets_dir
 
 
 
@@ -510,8 +528,13 @@ def main() -> None:
         if output_html.suffix.lower() != ".html":
             output_html = output_html.with_suffix(".html")
 
-    convert_pptx_to_html(input_path, output_html)
-    print(f"Exported '{input_path}' to '{output_html}' with assets in '{output_html.stem}_assets/'.")
+    exported_files, assets_dir = convert_pptx_to_html(input_path, output_html)
+    print(
+        f"Exported {len(exported_files)} slides from '{input_path}' to HTML files:"
+    )
+    for path in exported_files:
+        print(f" - {path}")
+    print(f"Assets saved in '{assets_dir}'.")
 
 
 if __name__ == "__main__":

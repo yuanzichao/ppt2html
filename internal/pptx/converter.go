@@ -115,38 +115,55 @@ func parsePresentation(f *zip.File) (*presentationData, error) {
 	decoder := xml.NewDecoder(r)
 	decoder.Strict = false
 
-	type presentation struct {
-		SlideSize struct {
-			CX int64 `xml:"cx,attr"`
-			CY int64 `xml:"cy,attr"`
-		} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldSz"`
-		SlideIDList struct {
-			SlideIDs []struct {
-				RID string `xml:"{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id,attr"`
-			} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"`
-		} `xml:"{http://schemas.openxmlformats.org/presentationml/2006/main}sldIdLst"`
-	}
-
-	var data presentation
-	if err := decoder.Decode(&data); err != nil {
-		return nil, err
-	}
-
 	size := slideSize{
 		CX: 960,
 		CY: 540,
 	}
-	if data.SlideSize.CX != 0 {
-		size.CX = emuToPixels(data.SlideSize.CX)
-	}
-	if data.SlideSize.CY != 0 {
-		size.CY = emuToPixels(data.SlideSize.CY)
-	}
+	var slideRels []string
 
-	slideRels := make([]string, 0, len(data.SlideIDList.SlideIDs))
-	for _, id := range data.SlideIDList.SlideIDs {
-		if id.RID != "" {
-			slideRels = append(slideRels, id.RID)
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+
+		if start.Name.Space == presentationNS && start.Name.Local == "sldSz" {
+			for _, attr := range start.Attr {
+				switch attr.Name.Local {
+				case "cx":
+					if v, parseErr := strconv.ParseInt(strings.TrimSpace(attr.Value), 10, 64); parseErr == nil && v > 0 {
+						size.CX = emuToPixels(v)
+					}
+				case "cy":
+					if v, parseErr := strconv.ParseInt(strings.TrimSpace(attr.Value), 10, 64); parseErr == nil && v > 0 {
+						size.CY = emuToPixels(v)
+					}
+				}
+			}
+			continue
+		}
+
+		if start.Name.Space == presentationNS && start.Name.Local == "sldId" {
+			for _, attr := range start.Attr {
+				if attr.Name.Local != "id" {
+					continue
+				}
+				if attr.Name.Space != "" && attr.Name.Space != officeRelationshipsNS {
+					continue
+				}
+				relID := strings.TrimSpace(attr.Value)
+				if relID != "" {
+					slideRels = append(slideRels, relID)
+				}
+			}
 		}
 	}
 

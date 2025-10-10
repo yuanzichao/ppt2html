@@ -39,6 +39,17 @@ def rgb_to_hex(rgb) -> Optional[str]:
         return None
 
 
+def color_format_to_hex(color_format) -> Optional[str]:
+    """Safely extract a hex string from a python-pptx color object."""
+    if color_format is None:
+        return None
+    try:
+        rgb = color_format.rgb  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+    return rgb_to_hex(rgb)
+
+
 def serialize_value(value: Any) -> Any:
     if value is None:
         return None
@@ -95,7 +106,7 @@ def build_text_html(shape) -> str:
                 styles.append(f"font-size: {font.size.pt:.2f}pt;")
             if font.name:
                 styles.append(f"font-family: '{font.name}';")
-            color_hex = rgb_to_hex(font.color.rgb if font.color else None)
+            color_hex = color_format_to_hex(font.color)
             if color_hex:
                 styles.append(f"color: {color_hex};")
             run_html = html.escape(run.text)
@@ -132,7 +143,7 @@ def build_table_html(shape) -> str:
         for cell in row.cells:
             cell_text = html.escape(cell.text)
             cell_styles: List[str] = []
-            color = rgb_to_hex(cell.fill.fore_color.rgb if cell.fill and cell.fill.fore_color else None)
+            color = color_format_to_hex(getattr(cell.fill, "fore_color", None) if cell.fill else None)
             if color:
                 cell_styles.append(f"background-color: {color};")
             cells_html.append(f"<td style=\"{''.join(cell_styles)}\">{cell_text}</td>")
@@ -210,7 +221,7 @@ def shape_to_html(shape, assets_dir: Path, slide_idx: int, shape_idx: int) -> st
     background_color = None
     fill = getattr(shape, "fill", None)
     if fill is not None and getattr(fill, "type", None) == MSO_FILL_TYPE.SOLID:
-        background_color = rgb_to_hex(fill.fore_color.rgb)
+        background_color = color_format_to_hex(getattr(fill, "fore_color", None))
     if background_color:
         base_styles.append(f"background-color: {background_color};")
 
@@ -219,7 +230,7 @@ def shape_to_html(shape, assets_dir: Path, slide_idx: int, shape_idx: int) -> st
     dash_style = getattr(line, "dash_style", None) if line is not None else None
     border_color = None
     if line_fill is not None and getattr(line_fill, "type", None) == MSO_FILL_TYPE.SOLID:
-        border_color = rgb_to_hex(line_fill.fore_color.rgb)
+        border_color = color_format_to_hex(getattr(line_fill, "fore_color", None))
     if border_color:
         width = emu_to_px(line.width) if getattr(line, "width", None) else 1.0
         dash_mapping = {
@@ -323,7 +334,7 @@ def slide_background_style(slide, assets_dir: Path, slide_idx: int) -> str:
         return ""
     try:
         if fill.type == MSO_FILL_TYPE.SOLID:
-            color = rgb_to_hex(fill.fore_color.rgb)
+            color = color_format_to_hex(getattr(fill, "fore_color", None))
             if color:
                 return f"background-color: {color};"
         elif fill.type == MSO_FILL_TYPE.PICTURE:

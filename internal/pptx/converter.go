@@ -153,10 +153,7 @@ func parsePresentation(f *zip.File) (*presentationData, error) {
 
 		if start.Name.Space == presentationNS && start.Name.Local == "sldId" {
 			for _, attr := range start.Attr {
-				if attr.Name.Local != "id" {
-					continue
-				}
-				if attr.Name.Space != "" && attr.Name.Space != officeRelationshipsNS {
+				if attr.Name.Local != "id" || attr.Name.Space != officeRelationshipsNS {
 					continue
 				}
 				relID := strings.TrimSpace(attr.Value)
